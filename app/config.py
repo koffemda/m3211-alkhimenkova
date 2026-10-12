@@ -25,6 +25,15 @@ class Settings:
     postgres_user: str = "bot"
     log_level: str = "INFO"
     health_port: int = 8080
+    # Имена полей совпадают с переменными окружения: деплой передаёт их через asdict().
+    openrouter_api_key: str = field(default="", repr=False)
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_model: str = "openai/gpt-4o-mini"
+    llm_proxy_url: str = field(default="", repr=False)
+    llm_timeout_seconds: int = 60
+    llm_max_tokens: int = 2000
+    history_max_messages: int = 20
+    history_max_chars: int = 12000
 
     @classmethod
     def load(
@@ -55,27 +64,60 @@ class Settings:
         password = value("POSTGRES_PASSWORD")
         if not password:
             raise ConfigError("POSTGRES_PASSWORD: пароль базы данных не задан.")
-        proxy = value("TELEGRAM_PROXY_URL")
-        if proxy:
+
+        def number(key: str, default: str, low: int, high: int) -> int:
             try:
-                parsed = urlsplit(proxy)
-                if (
-                    parsed.scheme not in {"http", "socks5"}
-                    or not parsed.hostname
-                    or not parsed.port
-                    or parsed.path not in {"", "/"}
-                    or parsed.query
-                    or parsed.fragment
-                ):
+                result = int(value(key, default))
+                if not low <= result <= high:
                     raise ValueError
+                return result
             except ValueError:
-                raise ConfigError(
-                    "TELEGRAM_PROXY_URL: нужен http://host:port или socks5://host:port; "
-                    "при необходимости добавьте user:password@."
-                ) from None
+                raise ConfigError(f"{key}: нужно целое число от {low} до {high}.") from None
+
+        def proxy_url(key: str) -> str:
+            proxy = value(key)
+            if proxy:
+                try:
+                    parsed = urlsplit(proxy)
+                    if (
+                        parsed.scheme not in {"http", "socks5"}
+                        or not parsed.hostname
+                        or not parsed.port
+                        or parsed.path not in {"", "/"}
+                        or parsed.query
+                        or parsed.fragment
+                    ):
+                        raise ValueError
+                except ValueError:
+                    raise ConfigError(
+                        f"{key}: нужен http://host:port или socks5://host:port; "
+                        "при необходимости добавьте user:password@."
+                    ) from None
+            return proxy
+
+        proxy = proxy_url("TELEGRAM_PROXY_URL")
         level = value("LOG_LEVEL", "INFO").upper()
         if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ConfigError("LOG_LEVEL: используйте DEBUG, INFO, WARNING, ERROR или CRITICAL.")
+        api_key = value("OPENROUTER_API_KEY").strip()
+        if not api_key:
+            raise ConfigError("OPENROUTER_API_KEY: ключ доступа к LLM API не задан.")
+        base_url = value("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
+        parsed_base = urlsplit(base_url)
+        if (
+            parsed_base.scheme not in {"http", "https"}
+            or not parsed_base.hostname
+            or parsed_base.username
+            or parsed_base.password
+            or parsed_base.query
+        ):
+            # Ключ хранится отдельно, поэтому учётные данные в адресе API не допускаются.
+            raise ConfigError(
+                "OPENROUTER_BASE_URL: нужен адрес вида https://host/api/v1 без логина и ключа."
+            )
+        model = value("OPENROUTER_MODEL", "openai/gpt-4o-mini").strip()
+        if not model:
+            raise ConfigError("OPENROUTER_MODEL: укажите имя модели.")
         return cls(
             bot_token=token,
             postgres_password=password,
@@ -86,4 +128,13 @@ class Settings:
             postgres_user=value("POSTGRES_USER", "bot"),
             log_level=level,
             health_port=port("HEALTH_PORT", "8080"),
+            openrouter_api_key=api_key,
+            openrouter_base_url=base_url,
+            openrouter_model=model,
+            llm_proxy_url=proxy_url("LLM_PROXY_URL"),
+            llm_timeout_seconds=number("LLM_TIMEOUT_SECONDS", "60", 5, 600),
+            llm_max_tokens=number("LLM_MAX_TOKENS", "2000", 64, 32000),
+            history_max_messages=number("HISTORY_MAX_MESSAGES", "20", 2, 200),
+            # Нижняя граница гарантирует место для промпта режима и сообщения Telegram.
+            history_max_chars=number("HISTORY_MAX_CHARS", "12000", 8000, 200000),
         )

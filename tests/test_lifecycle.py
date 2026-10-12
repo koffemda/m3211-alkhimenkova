@@ -43,6 +43,7 @@ async def test_telegram_failure_closes_pool_and_session(monkeypatch):
         session=Mock(close=AsyncMock()),
     )
     monkeypatch.setattr(application, "create_pool", AsyncMock(return_value=pool))
+    monkeypatch.setattr(application, "apply_migrations", AsyncMock(return_value=[]))
     monkeypatch.setattr(application, "create_bot", Mock(return_value=bot))
     settings = Settings(bot_token="unused", postgres_password="unused")
     # Act

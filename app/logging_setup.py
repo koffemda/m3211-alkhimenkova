@@ -26,6 +26,7 @@ class SecretFilter(logging.Filter):
 
 def configure_logging(settings: Settings) -> None:
     proxy = urlsplit(settings.telegram_proxy_url)
+    llm_proxy = urlsplit(settings.llm_proxy_url)
     handler = logging.StreamHandler()
     handler.addFilter(
         SecretFilter(
@@ -35,6 +36,10 @@ def configure_logging(settings: Settings) -> None:
                 settings.telegram_proxy_url,
                 proxy.password or "",
                 unquote(proxy.password or ""),
+                settings.openrouter_api_key,
+                settings.llm_proxy_url,
+                llm_proxy.password or "",
+                unquote(llm_proxy.password or ""),
             ]
         )
     )

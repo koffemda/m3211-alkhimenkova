@@ -1,15 +1,10 @@
 import asyncio
 import logging
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from aiogram import Bot, Dispatcher
-from aiogram.methods import SendMessage
-from aiogram.types import Chat, Message, PhotoSize, Update, User
 
 from app.config import ConfigError, Settings
-from app.handlers.echo import router
 from app.health import HealthState, health_result
 from app.logging_setup import SecretFilter
 from app.telegram import create_bot
@@ -20,63 +15,20 @@ TOKEN = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
 @pytest.fixture
 def settings(tmp_path):
     path = tmp_path / ".env"
-    path.write_text(f"BOT_TOKEN={TOKEN}\nPOSTGRES_PASSWORD=secret-db\n", encoding="utf-8")
+    path.write_text(
+        f"BOT_TOKEN={TOKEN}\nPOSTGRES_PASSWORD=secret-db\nOPENROUTER_API_KEY=test-key\n",
+        encoding="utf-8",
+    )
     return Settings.load(path, environ={})
-
-
-@pytest.mark.parametrize("text", ["Привет 👋", "/start", "<b>текст</b> & *слово*", "строка\nдва"])
-async def test_echo_preserves_exact_text(text):
-    # Arrange
-    bot = Bot(TOKEN)
-    bot.session = AsyncMock()
-    dispatcher = Dispatcher()
-    # A Router can have only one parent; use its handler callback through a fresh router.
-    from aiogram import Router
-
-    from app.handlers.echo import echo_text
-
-    test_router = Router()
-    from aiogram import F
-
-    test_router.message.register(echo_text, F.text)
-    dispatcher.include_router(test_router)
-    message = Message(
-        message_id=1,
-        date=datetime.now(UTC),
-        chat=Chat(id=42, type="private"),
-        from_user=User(id=42, is_bot=False, first_name="Студент"),
-        text=text,
-    )
-    # Act
-    await dispatcher.feed_update(bot, Update(update_id=1, message=message))
-    # Assert
-    method = bot.session.call_args.args[1]
-    assert isinstance(method, SendMessage)
-    assert method.chat_id == 42
-    assert method.text == text
-    assert method.parse_mode is None
-
-
-async def test_photo_does_not_match_text_handler():
-    # Arrange
-    handler = router.message.handlers[0]
-    message = Message(
-        message_id=1,
-        date=datetime.now(UTC),
-        chat=Chat(id=42, type="private"),
-        photo=[PhotoSize(file_id="a", file_unique_id="b", width=1, height=1)],
-    )
-    # Act
-    matches, _ = await handler.check(message)
-    # Assert
-    assert matches is False
 
 
 def test_settings_environment_overrides_file(tmp_path):
     # Arrange
     path = tmp_path / ".env"
     path.write_text(
-        f"BOT_TOKEN={TOKEN}\nPOSTGRES_PASSWORD='p$a#ss'\nPOSTGRES_PORT=5432\n", encoding="utf-8"
+        f"BOT_TOKEN={TOKEN}\nPOSTGRES_PASSWORD='p$a#ss'\nPOSTGRES_PORT=5432\n"
+        "OPENROUTER_API_KEY=test-key\n",
+        encoding="utf-8",
     )
     # Act
     config = Settings.load(path, environ={"POSTGRES_PORT": "55432"})
@@ -95,7 +47,12 @@ def test_invalid_port_has_safe_error(tmp_path, value):
     with pytest.raises(ConfigError, match="POSTGRES_PORT"):
         Settings.load(
             path,
-            environ={"BOT_TOKEN": TOKEN, "POSTGRES_PASSWORD": "secret", "POSTGRES_PORT": value},
+            environ={
+                "BOT_TOKEN": TOKEN,
+                "POSTGRES_PASSWORD": "secret",
+                "OPENROUTER_API_KEY": "key",
+                "POSTGRES_PORT": value,
+            },
         )
 
 
@@ -181,3 +138,67 @@ def test_log_filter_redacts_secrets_and_exception():
     # Assert
     assert all(secret not in rendered for secret in (TOKEN, "db-secret", "proxy-secret"))
     assert "ValueError" in rendered
+
+
+BASE_ENV = {"BOT_TOKEN": TOKEN, "POSTGRES_PASSWORD": "db", "OPENROUTER_API_KEY": "sk-secret"}
+
+
+def test_llm_settings_defaults(tmp_path):
+    # Arrange / Act
+    config = Settings.load(tmp_path / ".env", environ=BASE_ENV)
+    # Assert
+    assert config.openrouter_base_url == "https://openrouter.ai/api/v1"
+    assert config.openrouter_model == "openai/gpt-4o-mini"
+    assert (config.history_max_messages, config.history_max_chars) == (20, 12000)
+    assert "sk-secret" not in repr(config)
+
+
+def test_missing_llm_key_has_clear_error(tmp_path):
+    # Arrange
+    environ = {**BASE_ENV, "OPENROUTER_API_KEY": "  "}
+    # Act / Assert
+    with pytest.raises(ConfigError, match="OPENROUTER_API_KEY"):
+        Settings.load(tmp_path / ".env", environ=environ)
+
+
+@pytest.mark.parametrize(
+    "url", ["ftp://host/v1", "https://user:sk-secret@host/v1", "https://host/v1?key=sk-secret"]
+)
+def test_llm_base_url_without_credentials(tmp_path, url):
+    # Arrange
+    environ = {**BASE_ENV, "OPENROUTER_BASE_URL": url}
+    # Act / Assert
+    with pytest.raises(ConfigError, match="OPENROUTER_BASE_URL") as exc:
+        Settings.load(tmp_path / ".env", environ=environ)
+    assert "sk-secret" not in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("HISTORY_MAX_MESSAGES", "1"),
+        ("HISTORY_MAX_MESSAGES", "много"),
+        ("HISTORY_MAX_CHARS", "100"),
+        ("LLM_TIMEOUT_SECONDS", "0"),
+        ("LLM_MAX_TOKENS", "-5"),
+    ],
+)
+def test_invalid_limits_are_rejected(tmp_path, key, value):
+    # Act / Assert
+    with pytest.raises(ConfigError, match=key):
+        Settings.load(tmp_path / ".env", environ={**BASE_ENV, key: value})
+
+
+def test_log_filter_hides_llm_key_and_proxy_password(tmp_path):
+    # Arrange
+    from app.logging_setup import configure_logging
+
+    environ = {**BASE_ENV, "LLM_PROXY_URL": "http://user:proxy-pass@proxy:3128"}
+    configure_logging(Settings.load(tmp_path / ".env", environ=environ))
+    secret_filter = logging.getLogger().handlers[0].filters[0]
+    record = logging.LogRecord("t", logging.ERROR, "", 1, "key=%s proxy-pass", ("sk-secret",), None)
+    # Act
+    secret_filter.filter(record)
+    # Assert
+    assert "sk-secret" not in record.getMessage()
+    assert "proxy-pass" not in record.getMessage()
