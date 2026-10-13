@@ -198,3 +198,80 @@ def test_error_in_successful_http_body_is_unavailable():
 
 def test_length_finish_reason_marks_truncated_answer():
     assert parse_completion(completion("часть", finish="length")).truncated is True
+
+
+async def test_tools_are_sent_and_tool_calls_parsed(server):
+    # Arrange
+    client, responses, requests = server
+    responses.append(
+        reply_json(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "get_weather",
+                                        "arguments": '{"city": "Казань"}',
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            }
+        )
+    )
+    tools = [{"type": "function", "function": {"name": "get_weather", "parameters": {}}}]
+    # Act
+    result = await client.complete([ChatMessage("user", "погода")], temperature=0.0, tools=tools)
+    # Assert
+    _, payload = requests[0]
+    assert payload["tools"] == tools
+    assert (payload["tool_choice"], payload["parallel_tool_calls"]) == ("auto", False)
+    assert result.text == ""
+    assert [(c.id, c.name, c.arguments) for c in result.tool_calls] == [
+        ("call_1", "get_weather", '{"city": "Казань"}')
+    ]
+
+
+def test_tool_messages_are_serialized_with_roles():
+    # Arrange
+    from app.llm import ToolCall
+
+    call = ToolCall("call_1", "get_schedule", '{"date": "2026-10-13"}')
+    # Act
+    assistant = ChatMessage("assistant", "", tool_calls=(call,)).as_dict()
+    tool = ChatMessage("tool", '{"lessons": []}', tool_call_id="call_1").as_dict()
+    # Assert
+    assert assistant == {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "get_schedule", "arguments": '{"date": "2026-10-13"}'},
+            }
+        ],
+    }
+    assert tool == {"role": "tool", "tool_call_id": "call_1", "content": '{"lessons": []}'}
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"tool_calls": "x"},
+        {"tool_calls": [{"function": {"name": "f"}}]},
+        {"tool_calls": [{"id": "1", "function": {"name": 5, "arguments": "{}"}}]},
+    ],
+)
+def test_malformed_tool_calls_are_rejected(message):
+    with pytest.raises(LLMBadResponseError):
+        parse_completion({"choices": [{"message": message}]})

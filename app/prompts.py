@@ -16,6 +16,9 @@ class Mode:
     system_prompt: str
     few_shot: tuple[tuple[str, str], ...] = ()
     switch_hint: str = ""
+    # Доступны ли MCP-инструменты. В /translate весь текст — материал для перевода,
+    # поэтому «Напомни …» там переводится, а не превращается в действие.
+    tools: bool = True
 
 
 STUDY_PROMPT = """\
@@ -142,6 +145,7 @@ MODES: dict[str, Mode] = {
         system_prompt=TRANSLATE_PROMPT,
         few_shot=TRANSLATE_EXAMPLES,
         switch_hint="Укажите язык и текст, например: «на немецкий: Доброе утро!»",
+        tools=False,
     ),
     "review": Mode(
         command="review",

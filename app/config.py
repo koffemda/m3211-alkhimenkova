@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram.utils.token import TokenValidationError, validate_token
 from dotenv import dotenv_values
@@ -34,6 +35,10 @@ class Settings:
     llm_max_tokens: int = 2000
     history_max_messages: int = 20
     history_max_chars: int = 12000
+    # ЛР2: источник расписания MCP-сервера и таймаут MCP-вызова.
+    schedule_file: str = "data/schedule.json"
+    schedule_timezone: str = "Europe/Moscow"
+    mcp_call_timeout_seconds: int = 20
 
     @classmethod
     def load(
@@ -118,6 +123,19 @@ class Settings:
         model = value("OPENROUTER_MODEL", "openai/gpt-4o-mini").strip()
         if not model:
             raise ConfigError("OPENROUTER_MODEL: укажите имя модели.")
+        schedule_file = value("SCHEDULE_FILE", "data/schedule.json").strip()
+        schedule_path = Path(schedule_file)
+        if not schedule_path.is_absolute():
+            schedule_path = Path(__file__).resolve().parents[1] / schedule_path
+        if not schedule_path.is_file():
+            raise ConfigError("SCHEDULE_FILE: файл расписания не найден.")
+        schedule_timezone = value("SCHEDULE_TIMEZONE", "Europe/Moscow").strip()
+        try:
+            ZoneInfo(schedule_timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ConfigError(
+                "SCHEDULE_TIMEZONE: нужна зона IANA, например Europe/Moscow."
+            ) from None
         return cls(
             bot_token=token,
             postgres_password=password,
@@ -137,4 +155,7 @@ class Settings:
             history_max_messages=number("HISTORY_MAX_MESSAGES", "20", 2, 200),
             # Нижняя граница гарантирует место для промпта режима и сообщения Telegram.
             history_max_chars=number("HISTORY_MAX_CHARS", "12000", 8000, 200000),
+            schedule_file=schedule_file,
+            schedule_timezone=schedule_timezone,
+            mcp_call_timeout_seconds=number("MCP_CALL_TIMEOUT_SECONDS", "20", 2, 120),
         )

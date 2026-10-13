@@ -45,11 +45,37 @@ class LLMBadResponseError(LLMError):
 
 
 @dataclass(frozen=True)
-class ChatMessage:
-    role: str  # system | user | assistant
-    content: str
+class ToolCall:
+    """Вызов инструмента, предложенный моделью (нативный tool calling)."""
 
-    def as_dict(self) -> dict[str, str]:
+    id: str
+    name: str
+    arguments: str  # JSON-строка, как её вернула модель; разбирается и проверяется агентом
+
+    def as_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "type": "function",
+            "function": {"name": self.name, "arguments": self.arguments},
+        }
+
+
+@dataclass(frozen=True)
+class ChatMessage:
+    role: str  # system | user | assistant | tool
+    content: str
+    tool_calls: tuple[ToolCall, ...] = ()
+    tool_call_id: str | None = None
+
+    def as_dict(self) -> dict:
+        if self.role == "tool":
+            return {"role": "tool", "tool_call_id": self.tool_call_id, "content": self.content}
+        if self.tool_calls:
+            return {
+                "role": self.role,
+                "content": self.content or None,
+                "tool_calls": [call.as_dict() for call in self.tool_calls],
+            }
         return {"role": self.role, "content": self.content}
 
 
@@ -60,6 +86,7 @@ class LLMResult:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    tool_calls: tuple[ToolCall, ...] = ()
 
     @property
     def truncated(self) -> bool:
@@ -69,7 +96,27 @@ class LLMResult:
 class LLMClient(Protocol):
     model: str
 
-    async def complete(self, messages: list[ChatMessage], *, temperature: float) -> LLMResult: ...
+    async def complete(
+        self, messages: list[ChatMessage], *, temperature: float, tools: list[dict] | None = None
+    ) -> LLMResult: ...
+
+
+def parse_tool_calls(message: dict) -> tuple[ToolCall, ...]:
+    raw = message.get("tool_calls")
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise LLMBadResponseError("tool_calls не является списком")
+    calls = []
+    for item in raw:
+        function = item.get("function") if isinstance(item, dict) else None
+        if not isinstance(function, dict):
+            raise LLMBadResponseError("некорректный tool_call")
+        call_id, name, arguments = item.get("id"), function.get("name"), function.get("arguments")
+        if not isinstance(name, str) or not isinstance(arguments, str):
+            raise LLMBadResponseError("некорректный tool_call")
+        calls.append(ToolCall(call_id if isinstance(call_id, str) else name, name, arguments))
+    return tuple(calls)
 
 
 def parse_completion(data: object) -> LLMResult:
@@ -83,8 +130,13 @@ def parse_completion(data: object) -> LLMResult:
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         raise LLMBadResponseError("в ответе нет choices")
     message = choices[0].get("message")
-    content = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(content, str) or not content.strip():
+    if not isinstance(message, dict):
+        raise LLMBadResponseError("в ответе нет message")
+    content = message.get("content")
+    tool_calls = parse_tool_calls(message)
+    if not isinstance(content, str):
+        content = ""
+    if not content.strip() and not tool_calls:
         raise LLMBadResponseError("в ответе нет текста")
     usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
 
@@ -99,6 +151,7 @@ def parse_completion(data: object) -> LLMResult:
         prompt_tokens=tokens("prompt_tokens"),
         completion_tokens=tokens("completion_tokens"),
         total_tokens=tokens("total_tokens"),
+        tool_calls=tool_calls,
     )
 
 
@@ -128,13 +181,19 @@ class OpenAICompatibleClient:
         if self._session is not None:
             await self._session.close()
 
-    async def complete(self, messages: list[ChatMessage], *, temperature: float) -> LLMResult:
+    async def complete(
+        self, messages: list[ChatMessage], *, temperature: float, tools: list[dict] | None = None
+    ) -> LLMResult:
         payload = {
             "model": self.model,
             "messages": [message.as_dict() for message in messages],
             "temperature": temperature,
             "max_tokens": self._max_tokens,
         }
+        if tools:
+            # Нативный вызов инструментов: модель возвращает имя и JSON-аргументы
+            # в отдельном поле tool_calls; не больше одного вызова за ответ.
+            payload.update(tools=tools, tool_choice="auto", parallel_tool_calls=False)
         request_id = uuid.uuid4().hex[:8]
         for attempt in range(1, MAX_ATTEMPTS + 1):
             started = time.monotonic()
@@ -168,10 +227,12 @@ class OpenAICompatibleClient:
                 await asyncio.sleep(RETRY_DELAY_SECONDS)
                 continue
             logger.info(
-                "LLM %s: ответ за %.2f с, finish=%s, токены prompt/completion/total=%s/%s/%s",
+                "LLM %s: ответ за %.2f с, finish=%s, вызовов инструментов=%d, "
+                "токены prompt/completion/total=%s/%s/%s",
                 request_id,
                 time.monotonic() - started,
                 result.finish_reason,
+                len(result.tool_calls),
                 result.prompt_tokens,
                 result.completion_tokens,
                 result.total_tokens,

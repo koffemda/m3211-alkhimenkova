@@ -422,3 +422,24 @@ def test_custom_vm_configuration_is_remembered(tmp_path):
     # Assert
     assert deployment.state["config"]["memory"] == 2
     assert len(fake.created) == 4
+
+
+def test_source_archive_contains_mcp_server_and_schedule_but_no_secrets():
+    # Arrange
+    import tarfile
+    from pathlib import Path
+
+    from scripts.cloud import source_archive
+
+    root = Path(__file__).resolve().parents[1]
+    # Act
+    archive = source_archive(root)
+    try:
+        with tarfile.open(archive) as tar:
+            names = set(tar.getnames())
+    finally:
+        archive.unlink()
+    # Assert
+    assert {"app/__main__.py", "mcp_server/__main__.py", "mcp_server/server.py"} <= names
+    assert "data/schedule.json" in names
+    assert not any(".env" in name or ".deploy" in name or ".venv" in name for name in names)

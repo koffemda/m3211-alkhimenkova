@@ -5,5 +5,7 @@ COPY requirements.txt constraints.txt ./
 RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt \
     && useradd --uid 10001 --create-home student
 COPY --chown=student:student app ./app
+COPY --chown=student:student mcp_server ./mcp_server
+COPY --chown=student:student data ./data
 USER student
 CMD ["python", "-m", "app"]

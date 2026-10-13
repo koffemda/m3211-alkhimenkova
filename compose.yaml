@@ -42,6 +42,9 @@ services:
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-2000}
       HISTORY_MAX_MESSAGES: ${HISTORY_MAX_MESSAGES:-20}
       HISTORY_MAX_CHARS: ${HISTORY_MAX_CHARS:-12000}
+      SCHEDULE_FILE: ${SCHEDULE_FILE:-data/schedule.json}
+      SCHEDULE_TIMEZONE: ${SCHEDULE_TIMEZONE:-Europe/Moscow}
+      MCP_CALL_TIMEOUT_SECONDS: ${MCP_CALL_TIMEOUT_SECONDS:-20}
     depends_on:
       db:
         condition: service_healthy

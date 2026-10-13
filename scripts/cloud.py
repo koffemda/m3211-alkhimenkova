@@ -81,6 +81,8 @@ def source_archive(root: Path) -> Path:
         ]
     ]
     candidates.extend((root / "app").rglob("*.py"))
+    candidates.extend((root / "mcp_server").rglob("*.py"))
+    candidates.append(root / "data" / "schedule.json")
     with tarfile.open(archive_path, "w:gz") as archive:
         for path in sorted(candidates):
             if path.is_file() and "__pycache__" not in path.parts and not path.is_symlink():
@@ -445,7 +447,7 @@ class Cloud:
             "set -eu; "
             f"mkdir -p {REMOTE}; chmod 700 {REMOTE}; "
             f"if [ -f {REMOTE}/.env.cloud ]; then {COMPOSE} stop bot; fi; "
-            f"rm -rf {REMOTE}/app; "
+            f"rm -rf {REMOTE}/app {REMOTE}/mcp_server {REMOTE}/data; "
             f"tar -xzf /home/student/course-source.tar.gz -C {REMOTE}; "
             f"mv /home/student/course-env.pending {REMOTE}/.env.cloud; "
             f"chmod 600 {REMOTE}/.env.cloud; "

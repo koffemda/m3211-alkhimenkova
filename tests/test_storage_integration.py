@@ -6,9 +6,6 @@ RUN_INTEGRATION=1 python -m pytest -m integration -v
 """
 
 import os
-import secrets
-import socket
-import time
 
 import asyncpg
 import pytest
@@ -16,7 +13,6 @@ import pytest
 from app.assistant import AssistantService
 from app.llm import ChatMessage
 from app.storage import PostgresRepository, UserSettings, apply_migrations
-from scripts.common import CommandError, run_command
 from tests.conftest import FakeLLM
 
 pytestmark = [
@@ -30,54 +26,12 @@ pytestmark = [
 ALICE, BOB = 1001, 2002
 
 
-@pytest.fixture(scope="module")
-def dsn():
-    if os.environ.get("TEST_POSTGRES_DSN"):
-        yield os.environ["TEST_POSTGRES_DSN"]
-        return
-    name = "itmo-test-" + secrets.token_hex(6)
-    password = secrets.token_urlsafe(24)
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
-
-    def docker(*args):
-        return run_command(["docker", *args], label="Интеграционный Docker-тест", timeout=180)
-
-    docker(
-        "run", "-d", "--rm", "--name", name, "-p", f"127.0.0.1:{port}:5432",
-        "-e", "POSTGRES_DB=bot", "-e", "POSTGRES_USER=bot", "-e", f"POSTGRES_PASSWORD={password}",
-        "postgres:16-bookworm",
-    )  # fmt: skip
-    try:
-        deadline = time.monotonic() + 60
-        while True:
-            try:
-                docker("exec", name, "pg_isready", "-h", "127.0.0.1", "-U", "bot", "-d", "bot")
-                break
-            except CommandError:
-                if time.monotonic() >= deadline:
-                    raise
-                time.sleep(1)
-        yield f"postgresql://bot:{password}@127.0.0.1:{port}/bot"
-    finally:
-        docker("rm", "-f", name)
-
-
-@pytest.fixture
-async def pool(dsn):
-    pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
-    await pool.execute("DROP TABLE IF EXISTS chat_messages, user_settings, schema_migrations")
-    yield pool
-    await pool.close()
-
-
 async def test_migrations_are_idempotent(pool):
     # Act
     first = await apply_migrations(pool)
     second = await apply_migrations(pool)
     # Assert
-    assert first == [1]
+    assert first == [1, 2]
     assert second == []
 
 

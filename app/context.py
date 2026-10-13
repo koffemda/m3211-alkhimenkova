@@ -18,8 +18,8 @@ class MessageTooLongError(ValueError):
     """Текущий запрос не помещается в лимит даже без истории."""
 
 
-def fixed_part(mode: Mode) -> list[ChatMessage]:
-    messages = [ChatMessage("system", mode.system_prompt)]
+def fixed_part(mode: Mode, system_prompt: str | None = None) -> list[ChatMessage]:
+    messages = [ChatMessage("system", system_prompt or mode.system_prompt)]
     for question, answer in mode.few_shot:
         messages += [ChatMessage("user", question), ChatMessage("assistant", answer)]
     return messages
@@ -60,8 +60,10 @@ def build_messages(
     *,
     max_messages: int,
     max_chars: int,
+    system_prompt: str | None = None,
 ) -> list[ChatMessage]:
-    head = fixed_part(mode)
+    """system_prompt заменяет инструкцию режима (агент добавляет к ней правила инструментов)."""
+    head = fixed_part(mode, system_prompt)
     current = ChatMessage("user", user_text)
     budget = max_chars - size(head) - len(user_text)
     if budget < 0:

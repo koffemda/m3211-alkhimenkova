@@ -4,6 +4,10 @@
 !constraints.txt
 !app/
 !app/**
+!mcp_server/
+!mcp_server/**
+!data/
+!data/schedule.json
 **/__pycache__/
 **/*.pyc
 **/.env*
