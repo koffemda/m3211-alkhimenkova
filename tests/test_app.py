@@ -153,12 +153,13 @@ def test_llm_settings_defaults(tmp_path):
     assert "sk-secret" not in repr(config)
 
 
-def test_missing_llm_key_has_clear_error(tmp_path):
+def test_bot_starts_without_llm_key(tmp_path):
     # Arrange
     environ = {**BASE_ENV, "OPENROUTER_API_KEY": "  "}
-    # Act / Assert
-    with pytest.raises(ConfigError, match="OPENROUTER_API_KEY"):
-        Settings.load(tmp_path / ".env", environ=environ)
+    # Act
+    config = Settings.load(tmp_path / ".env", environ=environ)
+    # Assert
+    assert config.openrouter_api_key == ""
 
 
 @pytest.mark.parametrize(

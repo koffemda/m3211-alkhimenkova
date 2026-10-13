@@ -12,7 +12,7 @@ def test_first_setup_and_repeat_preserve_secrets(tmp_path):
     # Arrange
     root = tmp_path / "Курс с пробелами"
     root.mkdir()
-    prompt = Mock(side_effect=["123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk", "llm-key", ""])
+    prompt = Mock(side_effect=["123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk", ""])
     # Act
     path = prepare_env(root, cloud=False, ask=prompt, environ={})
     first = path.read_bytes()
@@ -26,12 +26,12 @@ def test_first_setup_and_repeat_preserve_secrets(tmp_path):
 def test_cloud_requires_proxy_and_has_separate_password(tmp_path):
     # Arrange
     token = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
-    prepare_env(tmp_path, cloud=False, ask=Mock(side_effect=[token, "llm-key", ""]), environ={})
+    prepare_env(tmp_path, cloud=False, ask=Mock(side_effect=[token, ""]), environ={})
     # Act
     path = prepare_env(
         tmp_path,
         cloud=True,
-        ask=Mock(side_effect=[token, "llm-key", "socks5://user:p%40ss@proxy:1080"]),
+        ask=Mock(side_effect=[token, "socks5://user:p%40ss@proxy:1080"]),
         environ={},
     )
     # Assert
@@ -47,9 +47,7 @@ def test_cloud_empty_proxy_fails_before_creating_file(tmp_path):
         prepare_env(
             tmp_path,
             cloud=True,
-            ask=Mock(
-                side_effect=["123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk", "llm-key", ""]
-            ),
+            ask=Mock(side_effect=["123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk", ""]),
             environ={},
         )
     assert not (tmp_path / ".env.cloud").exists()
@@ -388,7 +386,7 @@ def test_setup_only_checks_real_credentials_without_starting_bot(tmp_path, monke
     prepare_env(
         tmp_path,
         cloud=False,
-        ask=Mock(side_effect=["123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk", "llm-key", ""]),
+        ask=Mock(side_effect=["123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk", ""]),
         environ={},
     )
     commands = Mock(return_value="")

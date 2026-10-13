@@ -41,8 +41,6 @@ def prepare_env(
             updates[key] = default
     if not values.get("BOT_TOKEN"):
         updates["BOT_TOKEN"] = ask("Токен бота из BotFather (ввод скрыт): ").strip()
-    if not values.get("OPENROUTER_API_KEY"):
-        updates["OPENROUTER_API_KEY"] = ask("Ключ API языковой модели (ввод скрыт): ").strip()
     if not values.get("POSTGRES_PASSWORD"):
         updates["POSTGRES_PASSWORD"] = secrets.token_urlsafe(24)
     if "TELEGRAM_PROXY_URL" not in values or (cloud and not values.get("TELEGRAM_PROXY_URL")):

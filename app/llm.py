@@ -40,6 +40,10 @@ class LLMUnavailableError(LLMError):
         self.status = status
 
 
+class LLMNotConfiguredError(LLMError):
+    """Ключ API не задан: запрос к модели не отправляется."""
+
+
 class LLMBadResponseError(LLMError):
     """Ответ пришёл, но в нём нет ожидаемого текста."""
 
@@ -135,6 +139,9 @@ class OpenAICompatibleClient:
             "temperature": temperature,
             "max_tokens": self._max_tokens,
         }
+        if not self._api_key:
+            logger.warning("LLM: OPENROUTER_API_KEY не задан, запрос не отправлен.")
+            raise LLMNotConfiguredError("ключ API не задан")
         request_id = uuid.uuid4().hex[:8]
         for attempt in range(1, MAX_ATTEMPTS + 1):
             started = time.monotonic()
