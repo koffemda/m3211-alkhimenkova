@@ -104,9 +104,9 @@ class Settings:
         level = value("LOG_LEVEL", "INFO").upper()
         if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ConfigError("LOG_LEVEL: используйте DEBUG, INFO, WARNING, ERROR или CRITICAL.")
+        # Ключ необязателен для запуска: без него бот работает, а на запросы к модели
+        # отвечает, что LLM не настроена.
         api_key = value("OPENROUTER_API_KEY").strip()
-        if not api_key:
-            raise ConfigError("OPENROUTER_API_KEY: ключ доступа к LLM API не задан.")
         base_url = value("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
         parsed_base = urlsplit(base_url)
         if (

@@ -17,7 +17,13 @@ from zoneinfo import ZoneInfo
 from app.agent import Agent, AgentReply
 from app.confirmations import ReminderConfirmations
 from app.context import MessageTooLongError, build_messages
-from app.llm import LLMClient, LLMError, LLMTimeoutError, LLMUnavailableError
+from app.llm import (
+    LLMClient,
+    LLMError,
+    LLMNotConfiguredError,
+    LLMTimeoutError,
+    LLMUnavailableError,
+)
 from app.mcp_gateway import McpGateway
 from app.prompts import MODES, get_mode
 from app.storage import AgentEvent, Repository
@@ -31,6 +37,10 @@ TEXT_TIMEOUT = "Модель слишком долго отвечает. Поп�
 TEXT_RATE_LIMIT = "Слишком много запросов к модели. Подождите минуту и повторите."
 TEXT_REJECTED = "Сервис языковой модели отклонил запрос. Сообщите администратору бота."
 TEXT_UNAVAILABLE = "Сервис языковой модели сейчас недоступен. Попробуйте позже."
+TEXT_NOT_CONFIGURED = (
+    "Языковая модель не настроена: в .env не задан OPENROUTER_API_KEY. "
+    "Добавьте ключ и перезапустите бота."
+)
 TEXT_EMPTY = "Модель не вернула текст ответа. Попробуйте переформулировать запрос."
 TEXT_TOO_LONG = "Сообщение слишком длинное для обработки. Сократите его и отправьте снова."
 TEXT_TRUNCATED = (
@@ -73,6 +83,8 @@ def parse_temperature(raw: str) -> float | None:
 
 
 def error_text(error: LLMError) -> str:
+    if isinstance(error, LLMNotConfiguredError):
+        return TEXT_NOT_CONFIGURED
     if isinstance(error, LLMTimeoutError):
         return TEXT_TIMEOUT
     if isinstance(error, LLMUnavailableError):

@@ -363,3 +363,20 @@ async def test_long_answer_is_split_into_ordered_parts(make_bot):
     assert len(sent) > 1
     assert all(0 < len(part) <= 4096 for part in sent)
     assert "".join(sent) == answer
+
+
+async def test_missing_llm_key_gives_clear_message_without_http(repository):
+    # Arrange
+    from app.assistant import TEXT_NOT_CONFIGURED, AssistantService
+    from app.config import Settings
+    from app.llm import OpenAICompatibleClient
+    from tests.conftest import TelegramHarness
+
+    llm = OpenAICompatibleClient(Settings(bot_token="unused", postgres_password="unused"))
+    harness = TelegramHarness(AssistantService(repository, llm, max_messages=20, max_chars=12000))
+    # Act
+    sent = await harness.send(ALICE, "Вопрос")
+    # Assert
+    assert sent == [TEXT_NOT_CONFIGURED]
+    assert await repository.load_history(ALICE, 20) == []
+    await llm.close()
